@@ -18,14 +18,17 @@ scalacOptions ++= Seq(
 val silencerVersion = "1.4.4"
 val scalatestVersion = "3.1.0"
 val zioVersion = "1.0.0-RC17"
-
+val catsVersion = "2.0.0"
 
 libraryDependencies ++= Seq(
   compilerPlugin("com.github.ghik" % "silencer-plugin" % silencerVersion cross CrossVersion.full),
   "com.github.ghik" % "silencer-lib" % silencerVersion % Provided cross CrossVersion.full
 )
 
+
 libraryDependencies ++= Seq(
+  "org.typelevel" %% "cats-core" % catsVersion,
+
   "dev.zio" %% "zio" % zioVersion,
   "dev.zio" %% "zio-streams" % zioVersion,
 

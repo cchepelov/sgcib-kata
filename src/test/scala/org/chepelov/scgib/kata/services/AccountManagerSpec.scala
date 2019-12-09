@@ -73,10 +73,10 @@ class AccountManagerSpec extends AnyFlatSpec with Matchers with ScalaCheckDriven
 
         balanceBefore <- env.accountManager.getBalance(mickeysEuroAccountId)
 
-        deposit <- env.accountManager.depositCash(mickeysEuroAccountId, now.toInstant,
-          amount, CurrencyCode.WellKnown.Eur, None)
-
-        balanceAfter <- env.accountManager.getBalance(mickeysEuroAccountId)
+        balanceAfter <- env.accountManager.depositCash(mickeysEuroAccountId, now.toInstant, amount, CurrencyCode.WellKnown.Eur, None)
+          .andThen( env.accountManager.getBalance(mickeysEuroAccountId) )
+          .andThen( env.accountManager.getBalance(mickeysEuroAccountId) )
+          .andThen( env.accountManager.getBalance(mickeysEuroAccountId) )
       } yield {
         val (before, _) = balanceBefore
         val (after, _) = balanceAfter

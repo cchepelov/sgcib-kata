@@ -2,11 +2,17 @@ package org.chepelov.scgib.kata.model
 
 import java.time.Instant
 
-sealed trait EventDirection
+sealed trait EventDirection {
+  def factor: Int
+}
 
 object EventDirection {
-  case object Deposit extends EventDirection
-  case object Withdrawal extends EventDirection
+  case object Deposit extends EventDirection {
+    def factor: Int = 1
+  }
+  case object Withdrawal extends EventDirection {
+    def factor: Int = -1
+  }
 }
 
 trait Event {

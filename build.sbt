@@ -5,10 +5,7 @@ name := "kata-merry-xmas"
 version := "0.0.1-SNAPSHOT"
 description := "A service enabling basic banking account operations"
 
-scalaVersion := "2.13.1"
-
-// ThisBuild / turbo := true
-
+scalaVersion := "2.12.10"
 
 scalacOptions ++= Seq(
   "-Xmacro-settings:materialize-derivations",
@@ -23,17 +20,16 @@ val scalatestVersion = "3.1.0"
 val zioVersion = "1.0.0-RC17"
 
 
-
 libraryDependencies ++= Seq(
   compilerPlugin("com.github.ghik" % "silencer-plugin" % silencerVersion cross CrossVersion.full),
   "com.github.ghik" % "silencer-lib" % silencerVersion % Provided cross CrossVersion.full
 )
 
-
-
 libraryDependencies ++= Seq(
   "dev.zio" %% "zio" % zioVersion,
   "dev.zio" %% "zio-streams" % zioVersion,
+
+  "com.propensive" %% "kaleidoscope" % "0.1.0",
 )
 
 libraryDependencies ++= Seq(

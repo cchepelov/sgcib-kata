@@ -5,8 +5,8 @@ import java.time.Instant
 import org.chepelov.scgib.kata.model.{Account, AccountId, AuthenticatedUser, CurrencyCode, Event, KataError, OwnerId}
 import org.chepelov.scgib.kata.services
 import org.chepelov.scgib.kata.services.AccountManager
-import zio.{IO, ZIO, ZManaged}
-import zio.stm.{STM, TMap}
+import zio.{DefaultRuntime, IO, ZIO, ZManaged, Runtime, ZEnv}
+import zio.stm.{STM, TMap, TRef}
 import cats.implicits._
 import cats.kernel.Monoid
 
@@ -21,25 +21,26 @@ trait AccountManagerLive extends AccountManager {
 
   lazy val accountManager = new services.AccountManager.Service[Any] {
 
+    private def initRuntime: Runtime[ZEnv] = new DefaultRuntime {}
+
     private val data = {
       val init = initialAccounts.map(account => (account.id, account))
 
-      TMap.fromIterable(init)
+      initRuntime.unsafeRun(TMap.fromIterable(init).commit)
     }
 
     private val balance = {
-      TMap.empty[AccountId, BigDecimal]
+      initRuntime.unsafeRun(TMap.empty[AccountId, BigDecimal].commit)
     }
 
     private val events = {
-      TMap.empty[AccountId, List[Event]]
+      initRuntime.unsafeRun(TMap.empty[AccountId, List[Event]].commit)
     }
 
 
-    private def getStm(accountId: AccountId)(implicit authenticatedUser: AuthenticatedUser) =
+    private def getStm(accountId: AccountId)(implicit authenticatedUser: AuthenticatedUser): STM[KataError, Account] =
       for {
-        accountTmap <- data
-        accountMaybe <- accountTmap.get(accountId)
+        accountMaybe <- data.get(accountId)
 
         result <- accountMaybe match {
           case Some(account) if (authenticatedUser.canActOnBehalfOf(account.owner))  => STM.succeed(account)
@@ -57,21 +58,17 @@ trait AccountManagerLive extends AccountManager {
     }
 
     private def addEventStm(accountId: AccountId, event: Event): STM[Nothing, List[Event]] = for {
-      balanceTmap <- balance
-      eventsTmap <- events
 
-      cacheCleared <- balanceTmap.delete(accountId)
-
-      prevEvents <- eventsTmap.getOrElse(accountId, Nil)
+      cacheCleared <- balance.delete(accountId)
+      prevEvents <- events.getOrElse(accountId, Nil)
 
       newEvents = event :: prevEvents
+      _ <- events.put(accountId, newEvents)
 
-      stored <- eventsTmap.put(accountId, newEvents)
-
-      effectiveEvents <- eventsTmap.get(accountId)
+      effectiveEvents <- events.getOrElse(accountId, Nil)
     } yield {
-      println(s"newEvents=${newEvents}, effectiveEvents=${effectiveEvents}")
-      newEvents
+      println(s"newEvents=${newEvents}, effectiveEvents = ${effectiveEvents}")
+      effectiveEvents
     }
 
 
@@ -88,12 +85,20 @@ trait AccountManagerLive extends AccountManager {
               STM.fail(KataError.WrongCurrency(currency, account.currency))
             }
             opResult <- addEventStm(accountId, Event.CashDeposit(effectiveDate, amount, comment))
+
+            postBalance <- getBalanceStm(accountId)
+
           } yield {
+            println(s"at the end of depositCash's transaction, balance would be=${postBalance}")
             opResult
           }
         }
+
+        postResult <- STM.atomically(getBalanceStm(accountId))
+
       } yield {
         println(s"We've just commited balance.Clear, events=${result} for account=${accountId}. As ${Thread.currentThread().getId}")
+        println(s"    postResult=${postResult}")
         // result
       }
     }
@@ -103,8 +108,7 @@ trait AccountManagerLive extends AccountManager {
       for {
         account <- getStm(accountId) // this gates the account is legit and we can access it
 
-        balanceTmap <- balance
-        balanceBefore <- balanceTmap.get(accountId)
+        balanceBefore <- balance.get(accountId)
 
         resultSum <- balanceBefore match {
           case Some(cachedValue) =>
@@ -113,13 +117,11 @@ trait AccountManagerLive extends AccountManager {
 
           case None =>
             for {
-              eventsTmap <- events
-              eventList <- eventsTmap.getOrElse(accountId, Nil)
+              eventList <- events.getOrElse(accountId, Nil)
 
               sum = Monoid.combineAll(eventList.map(ev => ev.amount * ev.direction.factor))
 
-
-              cached <- balanceTmap.put(accountId, sum)
+              cached <- balance.put(accountId, sum)
             } yield {
               println(s"recomputed balance=${sum} for account=${accountId}: we had events=${eventList}. As ${Thread.currentThread().getId}")
               sum

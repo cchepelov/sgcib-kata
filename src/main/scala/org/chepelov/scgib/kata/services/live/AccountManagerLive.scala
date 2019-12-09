@@ -1,5 +1,7 @@
 package org.chepelov.scgib.kata.services.live
 
+import java.time.Instant
+
 import org.chepelov.scgib.kata.model.{Account, AccountId, AuthenticatedUser, CurrencyCode, KataError, OwnerId}
 import org.chepelov.scgib.kata.services
 import org.chepelov.scgib.kata.services.AccountManager
@@ -40,7 +42,25 @@ trait AccountManagerLive extends AccountManager {
       } yield {
         account
       }
+    }
+
+    override def depositCash(accountId: AccountId, effectiveDate: Instant, amount: BigDecimal,
+                             currency: CurrencyCode, comment: Option[String])
+                            (implicit authenticatedUser: AuthenticatedUser)
+
+    : IO[KataError, Unit] = {
+      for {
+        account <- get(accountId)
+
+        _ <- if (account.currency == currency) IO.succeed( () ) else {
+          IO.fail(KataError.WrongCurrency(currency, account.currency))
+        }
+
+      } yield {
+
+      }
 
     }
+
   }
 }

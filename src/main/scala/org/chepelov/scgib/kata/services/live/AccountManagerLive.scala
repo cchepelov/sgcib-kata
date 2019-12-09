@@ -21,7 +21,7 @@ trait AccountManagerLive extends AccountManager {
 
   lazy val accountManager = new services.AccountManager.Service[Any] {
 
-    private def initRuntime: Runtime[ZEnv] = new DefaultRuntime {}
+    private def initRuntime: Runtime[ZEnv] = new DefaultRuntime {} // due to us not being full-ZIO we still need to use a throw-away runtime for init
 
     private val data = {
       val init = initialAccounts.map(account => (account.id, account))
@@ -29,7 +29,7 @@ trait AccountManagerLive extends AccountManager {
       initRuntime.unsafeRun(TMap.fromIterable(init).commit)
     }
 
-    private val balance = {
+    private val balanceCache = {
       initRuntime.unsafeRun(TMap.empty[AccountId, BigDecimal].commit)
     }
 
@@ -43,9 +43,12 @@ trait AccountManagerLive extends AccountManager {
         accountMaybe <- data.get(accountId)
 
         result <- accountMaybe match {
-          case Some(account) if (authenticatedUser.canActOnBehalfOf(account.owner))  => STM.succeed(account)
-          case Some(account) => STM.fail(KataError.AccessDenied)
-          case None => STM.fail(KataError.NotFound(accountId))
+          case Some(account) if (authenticatedUser.canActOnBehalfOf(account.owner)) =>
+            STM.succeed(account)
+          case Some(_) =>
+            STM.fail(KataError.AccessDenied)
+          case None =>
+            STM.fail(KataError.NotFound(accountId))
         }
       } yield {
         result
@@ -59,60 +62,42 @@ trait AccountManagerLive extends AccountManager {
 
     private def addEventStm(accountId: AccountId, event: Event): STM[Nothing, List[Event]] = for {
 
-      cacheCleared <- balance.delete(accountId)
+      cacheCleared <- balanceCache.delete(accountId)
       prevEvents <- events.getOrElse(accountId, Nil)
 
       newEvents = event :: prevEvents
       _ <- events.put(accountId, newEvents)
 
-      effectiveEvents <- events.getOrElse(accountId, Nil)
     } yield {
-      println(s"newEvents=${newEvents}, effectiveEvents = ${effectiveEvents}")
-      effectiveEvents
+      newEvents
     }
 
 
     override def depositCash(accountId: AccountId, effectiveDate: Instant, amount: BigDecimal,
                              currency: CurrencyCode, comment: Option[String])
-                            (implicit authenticatedUser: AuthenticatedUser)
-
-    : IO[KataError, Unit] = {
-      for {
-        result <- STM.atomically {
-          for {
-            account <- getStm(accountId)
-            _ <- if (account.currency == currency) STM.succeed( () ) else {
-              STM.fail(KataError.WrongCurrency(currency, account.currency))
-            }
-            opResult <- addEventStm(accountId, Event.CashDeposit(effectiveDate, amount, comment))
-
-            postBalance <- getBalanceStm(accountId)
-
-          } yield {
-            println(s"at the end of depositCash's transaction, balance would be=${postBalance}")
-            opResult
+                            (implicit authenticatedUser: AuthenticatedUser): IO[KataError, Unit] =
+      STM.atomically {
+        for {
+          account <- getStm(accountId)
+          _ <- if (account.currency == currency) STM.succeed(()) else {
+            STM.fail(KataError.WrongCurrency(currency, account.currency))
           }
+          _ <- addEventStm(accountId, Event.CashDeposit(effectiveDate, amount, comment))
+        } yield {
         }
-
-        postResult <- STM.atomically(getBalanceStm(accountId))
-
-      } yield {
-        println(s"We've just commited balance.Clear, events=${result} for account=${accountId}. As ${Thread.currentThread().getId}")
-        println(s"    postResult=${postResult}")
-        // result
       }
-    }
 
 
-    def getBalanceStm(accountId: AccountId)(implicit authenticatedUser: AuthenticatedUser): STM[KataError, (BigDecimal, CurrencyCode)] = {
+
+    def getBalanceStm(accountId: AccountId)
+                     (implicit authenticatedUser: AuthenticatedUser): STM[KataError, (BigDecimal, CurrencyCode)] = {
       for {
         account <- getStm(accountId) // this gates the account is legit and we can access it
 
-        balanceBefore <- balance.get(accountId)
+        balanceBefore <- balanceCache.get(accountId)
 
         resultSum <- balanceBefore match {
           case Some(cachedValue) =>
-            println(s"reading back some cached value ${cachedValue}. As ${Thread.currentThread().getId}")
             STM.succeed(cachedValue)
 
           case None =>
@@ -121,9 +106,8 @@ trait AccountManagerLive extends AccountManager {
 
               sum = Monoid.combineAll(eventList.map(ev => ev.amount * ev.direction.factor))
 
-              cached <- balance.put(accountId, sum)
+              cached <- balanceCache.put(accountId, sum)
             } yield {
-              println(s"recomputed balance=${sum} for account=${accountId}: we had events=${eventList}. As ${Thread.currentThread().getId}")
               sum
             }
         }
@@ -132,8 +116,7 @@ trait AccountManagerLive extends AccountManager {
       }
     }
 
-    override def getBalance(accountId: AccountId)(implicit authenticatedUser: AuthenticatedUser): IO[KataError, (BigDecimal, CurrencyCode)] = {
+    override def getBalance(accountId: AccountId)(implicit authenticatedUser: AuthenticatedUser): IO[KataError, (BigDecimal, CurrencyCode)] =
       STM.atomically(getBalanceStm(accountId))
-    }
   }
 }

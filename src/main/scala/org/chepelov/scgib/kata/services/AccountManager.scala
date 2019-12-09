@@ -19,5 +19,8 @@ object AccountManager {
                     comment: Option[String] = None)
                    (implicit authenticatedUser: AuthenticatedUser): IO[KataError, Unit]
 
+    def getBalance(accountId: AccountId)
+                  (implicit authenticatedUser: AuthenticatedUser): IO[KataError, (BigDecimal, CurrencyCode)]
+
   }
 }

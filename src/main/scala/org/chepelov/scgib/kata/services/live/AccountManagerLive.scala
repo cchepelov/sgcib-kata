@@ -5,7 +5,7 @@ import java.time.Instant
 import org.chepelov.scgib.kata.model.{Account, AccountId, AuthenticatedUser, CurrencyCode, KataError, OwnerId}
 import org.chepelov.scgib.kata.services
 import org.chepelov.scgib.kata.services.AccountManager
-import zio.{IO, ZManaged}
+import zio.{IO, ZIO, ZManaged}
 import zio.stm.{STM, TMap}
 
 trait AccountManagerLive extends AccountManager {
@@ -24,6 +24,11 @@ trait AccountManagerLive extends AccountManager {
 
       TMap.fromIterable(init)
     }
+
+    private val balance = {
+      TMap.empty[AccountId, BigDecimal]
+    }
+
 
     override def get(accountId: AccountId)
                     (implicit authenticatedUser: AuthenticatedUser): IO[KataError, Account] = {
@@ -62,5 +67,20 @@ trait AccountManagerLive extends AccountManager {
 
     }
 
+    override def getBalance(accountId: AccountId)(implicit authenticatedUser: AuthenticatedUser): IO[KataError, (BigDecimal, CurrencyCode)] = {
+      for {
+        account <- get(accountId) // this gates the account is legit and we can access it
+
+        accessOp <- STM.atomically {
+          balance.map {
+            _.getOrElse(accountId, BigDecimal(0)).commit.map(amount => (amount, account.currency))
+          }
+        }
+
+        result <- accessOp
+      } yield {
+        result
+      }
+    }
   }
 }

@@ -62,16 +62,27 @@ class AccountManagerSpec extends AnyFlatSpec with Matchers with ScalaCheckDriven
     runtime.unsafeRun(z.provide(testAccountManager))
   }
 
-  "As Mickey, I can deposit any quantity of euros into my Euro account" should "be accepted" in forAll(genMonetaryAmount) { amount =>
+  "As Mickey, attempting a deposit of any quantity of euros into my Euro account" should "be accepted" in forAll(genMonetaryAmount) { amount =>
     implicit val mickey: AuthenticatedUser = AuthenticatedUser(OwnerId("Mickey"))
+
+    val mickeysEuroAccountId = AccountId("11123E")
 
     val z = ZIO.accessM[AccountManager with Clock] { env =>
       for {
         now <- env.clock.currentDateTime
-        deposit <- env.accountManager.depositCash(AccountId("11123E"), now.toInstant,
+
+        balanceBefore <- env.accountManager.getBalance(mickeysEuroAccountId)
+
+        deposit <- env.accountManager.depositCash(mickeysEuroAccountId, now.toInstant,
           amount, CurrencyCode.WellKnown.Eur, None)
+
+        balanceAfter <- env.accountManager.getBalance(mickeysEuroAccountId)
       } yield {
-        ()
+        val (before, _) = balanceBefore
+        val (after, _) = balanceAfter
+
+        after shouldEqual (before + amount)
+
       }
     }
 
@@ -104,6 +115,8 @@ class AccountManagerSpec extends AnyFlatSpec with Matchers with ScalaCheckDriven
       runtime.unsafeRun(z.provide(testAccountManager))
   }
 
+  // should check: Pluto can't deposit into Mickey
+  // should check: assuming Mickey can act on behalf of Pluto, Mickey can access Pluto, can deposit for Pluto, etc.
 
 
 }
